@@ -1,0 +1,1074 @@
+---
+title: "DENGUE CORTE AL `r format(Sys.Date(), '%d')` DE `r c('ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE')[as.numeric(format(Sys.Date(), '%m'))]` DE `r format(Sys.Date(), '%Y')`"
+output: 
+  flexdashboard::flex_dashboard:
+    #css: 'https://framework-gb.cdn.gob.mx/gm/v3/assets/styles/main.css'
+    #js: 'https://framework-gb.cdn.gob.mx/gm/v3/assets/js/gobmx.js'
+    theme:
+      #version: 4
+      bootswatch: "united"
+      #bg: "#101010"
+      #fg: "#FDF7F7" 
+      #primary: "#ED79F9"
+      #base_font:
+      #  google: Prompt
+      #code_font:
+      #  google: JetBrains Mono
+    orientation: rows
+    vertical_layout: scroll
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(leaflet)
+library(leaflet.extras)
+library(plotly)
+library(sf)
+library(bslib)
+library(shiny)
+library(shinydashboard)
+library(fontawesome)
+library(plotly)
+# Install thematic and un-comment for themed static plots (i.e., ggplot2)
+thematic::thematic_rmd()
+
+dengue_ <- read_delim('data/DENGUE2_.txt', delim = '|', locale = locale(encoding = 'latin1'), quote = '', comment = '') %>% 
+  mutate(DES_UNI_MED_NOTIF = str_squish(DES_UNI_MED_NOTIF), 
+         DES_EDO_UNIDAD = str_squish(DES_EDO_UNIDAD),
+         DES_INS_UNI_TRAT = case_when(
+           str_squish(DES_INS_UNI_TRAT) == 'IMSS' ~ 'IMSS-Ordinario',
+           str_squish(DES_INS_UNI_TRAT) %in% c('IMSS BIENESTAR', 'IMSS_OPD') ~ 'IMSS-Bienestar',
+           str_squish(DES_INS_UNI_TRAT) == 'SERVICIOS MEDICOS ESTATALES' ~ 'ISSSTESON',
+           str_squish(DES_INS_UNI_TRAT) == 'SSA' ~ 'SSA',
+           str_squish(DES_INS_UNI_TRAT) == 'ISSSTE' ~ 'ISSSTE',
+           str_squish(DES_INS_UNI_TRAT) == 'SEDENA' ~ 'SEDENA',
+           str_squish(DES_INS_UNI_TRAT) == 'SEMAR' ~ 'SEMAR',
+           is.na(DES_INS_UNI_TRAT) ~ NA,
+           T ~ 'Otras'
+         ),
+         DES_INS_UNIDAD = case_when(
+           str_squish(DES_INS_UNIDAD) == 'IMSS' ~ 'IMSS-Ordinario',
+           str_squish(DES_INS_UNIDAD) %in% c('IMSS BIENESTAR', 'IMSS_OPD') ~ 'IMSS-Bienestar',
+           str_squish(DES_INS_UNIDAD) == 'SERVICIOS MEDICOS ESTATALES' ~ 'ISSSTESON',
+           str_squish(DES_INS_UNIDAD) == 'SSA' ~ 'SSA',
+           str_squish(DES_INS_UNIDAD) == 'ISSSTE' ~ 'ISSSTE',
+           str_squish(DES_INS_UNIDAD) == 'SEDENA' ~ 'SEDENA',
+           str_squish(DES_INS_UNIDAD) == 'SEMAR' ~ 'SEMAR',
+           is.na(DES_INS_UNIDAD) ~ NA,
+           T ~ 'Otras'
+         ),
+         det_cap = as.numeric(FEC_CAPTURA - FEC_SOL_ATEN), # NOTIFICACION OPORTUNA
+         tom_sint = as.numeric(FECHA_TOMA_MUESTRA - FEC_INI_SIGNOS_SINT), # MUESTRA OPORTUNA
+         conf_mue = as.numeric(FECHA_RESULTADO_TRIPLEX - FEC_SOL_ATEN), # RESULTADO DE LABORATORIO POSTERIOR A SOLICITUD DE ATENCION
+         res_mue = as.numeric(FECHA_RESULTADO_TRIPLEX - FECHA_RECEP_MUESTRA), # ESTANDAR DE SERVICIO EN LABORATORIO
+         DES_EDO_REP = str_squish(DES_EDO_REP),
+         DES_EDO_RES = str_squish(DES_EDO_RES),
+         DES_MPO_REP = str_squish(DES_MPO_REP),
+         DES_MPO_RES = str_squish(DES_MPO_RES),
+         DES_LOC_REP = str_squish(DES_LOC_REP),
+         DES_LOC_RES = str_squish(DES_LOC_RES),
+         CVE_EDO_REP = str_pad(CVE_EDO_REP, side = 'left', pad = '0', width = 2), 
+         CVE_EDO_RES = str_pad(CVE_EDO_RES, side = 'left', pad = '0', width = 2), 
+         CVE_JUR_REP = str_pad(CVE_JUR_REP, side = 'left', pad = '0', width = 2), 
+         CVE_JUR_RES = str_pad(CVE_JUR_RES, side = 'left', pad = '0', width = 2),
+         CVE_MPO_REP = str_pad(CVE_MPO_REP, side = 'left', pad = '0', width = 3),
+         CVE_MPO_RES = str_pad(CVE_MPO_RES, side = 'left', pad = '0', width = 3), 
+         CVE_LOC_REP = str_pad(CVE_LOC_REP, side = 'left', pad = '0', width = 4), 
+         CVE_LOC_RES = str_pad(CVE_LOC_RES, side = 'left', pad = '0', width = 4),
+         DES_MPO_UNIDAD = str_squish(DES_MPO_UNIDAD),
+         CVE_MPO_UNIDAD = str_pad(CVE_MPO_UNIDAD, side = 'left', pad = '0', width = 3),
+         CVE_EDO_UNIDAD = str_pad(CVE_EDO_UNIDAD, side = 'left', pad = '0', width = 2),
+         CVE_JUR_UNIDAD = str_pad(CVE_JUR_UNIDAD, side = 'left', pad = '0', width = 2), 
+         DES_JUR_UNIDAD = str_squish(DES_JUR_UNIDAD)
+         ) %>% 
+  select(IDE_ID, CVE_EDO_REP, CVE_EDO_RES, CVE_JUR_REP, CVE_JUR_RES,
+         CVE_MPO_REP, CVE_MPO_RES, 
+         CVE_LOC_REP, CVE_LOC_RES,
+         DES_EDO_REP, DES_EDO_RES,
+         DES_MPO_REP, DES_MPO_RES,
+         DES_LOC_REP, DES_LOC_RES, CVE_MPO_UNIDAD, CVE_EDO_UNIDAD, CVE_JUR_UNIDAD, DES_JUR_UNIDAD,
+         DES_UNI_MED_NOTIF, DES_EDO_UNIDAD, DES_INS_UNI_TRAT, DES_INS_UNIDAD, 
+         det_cap, tom_sint, conf_mue, res_mue,
+         FEC_CAPTURA, FEC_SOL_ATEN, FECHA_TOMA_MUESTRA, FEC_INI_SIGNOS_SINT,
+         FECHA_RESULTADO_TRIPLEX, FECHA_RECEP_MUESTRA, MUESTRA_LABORATORIO, MUESTRA_RECHAZADA, 
+         ESTATUS_CASO, CVE_DEFUNCION, FEC_DEFUNCION, IDE_EDA_ANO, IDE_SEX, DENGUE_SER_TRIPLEX, DES_MPO_UNIDAD, DENGUE_PCR_TRIPLEX,
+         DES_DIAG_PROBABLE, DES_DIAG_FINAL
+         ) %>%  
+  mutate(Año = year(floor_date(FEC_INI_SIGNOS_SINT, 'week') + 3),
+         Semana = epiweek(FEC_INI_SIGNOS_SINT)) %>%
+  mutate(`Grupo de edad` = cut(IDE_EDA_ANO, 
+                        breaks = c(0, 4, 9, 14, 19, 24, 44, 49, 59, 64, Inf),
+                        labels = c('De 00 a 04 años', 
+                                      'De 05 a 09 años', 
+                                      'De 10 a 14 años', 
+                                      'De 15 a 19 años', 
+                                      'De 20 a 24 años', 
+                                      'De 25 a 44 años', 
+                                      'De 45 a 49 años', 
+                                      'De 50 a 59 años', 
+                                      'De 60 a 64 años', 
+                                      'De 65 y más años'),
+                        include.lowest = T)) %>% 
+  mutate(`Grupo de edad` = factor(as.character(`Grupo de edad`), 
+                                  levels = c('De 00 a 04 años', 
+                                      'De 05 a 09 años', 
+                                      'De 10 a 14 años', 
+                                      'De 15 a 19 años', 
+                                      'De 20 a 24 años', 
+                                      'De 25 a 44 años', 
+                                      'De 45 a 49 años', 
+                                      'De 50 a 59 años', 
+                                      'De 60 a 64 años', 
+                                      'De 65 y más años')))
+
+hist <- read_rds('data/historicos/dengue_2020_2024.rds') %>% 
+  bind_rows(
+    read_delim('data/historicos/DENGUE2_311225.txt', delim = '|', locale = locale(encoding = 'latin1'), quote = '', comment = '') %>% mutate(CERTIFICADO_DEFUNCION = as.numeric(CERTIFICADO_DEFUNCION))
+  ) %>% 
+  mutate(DES_UNI_MED_NOTIF = str_squish(DES_UNI_MED_NOTIF), 
+         DES_EDO_UNIDAD = str_squish(DES_EDO_UNIDAD),
+         DES_INS_UNI_TRAT = case_when(
+           str_squish(DES_INS_UNI_TRAT) == 'IMSS' ~ 'IMSS-Ordinario',
+           str_squish(DES_INS_UNI_TRAT) %in% c('IMSS BIENESTAR', 'IMSS_OPD') ~ 'IMSS-Bienestar',
+           str_squish(DES_INS_UNI_TRAT) == 'SERVICIOS MEDICOS ESTATALES' ~ 'ISSSTESON',
+           str_squish(DES_INS_UNI_TRAT) == 'SSA' ~ 'SSA',
+           str_squish(DES_INS_UNI_TRAT) == 'ISSSTE' ~ 'ISSSTE',
+           str_squish(DES_INS_UNI_TRAT) == 'SEDENA' ~ 'SEDENA',
+           str_squish(DES_INS_UNI_TRAT) == 'SEMAR' ~ 'SEMAR',
+           is.na(DES_INS_UNI_TRAT) ~ NA,
+           T ~ 'Otras'
+         ),
+         DES_INS_UNIDAD = case_when(
+           str_squish(DES_INS_UNIDAD) == 'IMSS' ~ 'IMSS-Ordinario',
+           str_squish(DES_INS_UNIDAD) %in% c('IMSS BIENESTAR', 'IMSS_OPD') ~ 'IMSS-Bienestar',
+           str_squish(DES_INS_UNIDAD) == 'SERVICIOS MEDICOS ESTATALES' ~ 'ISSSTESON',
+           str_squish(DES_INS_UNIDAD) == 'SSA' ~ 'SSA',
+           str_squish(DES_INS_UNIDAD) == 'ISSSTE' ~ 'ISSSTE',
+           str_squish(DES_INS_UNIDAD) == 'SEDENA' ~ 'SEDENA',
+           str_squish(DES_INS_UNIDAD) == 'SEMAR' ~ 'SEMAR',
+           is.na(DES_INS_UNIDAD) ~ NA,
+           T ~ 'Otras'
+         ),
+         det_cap = as.numeric(FEC_CAPTURA - FEC_SOL_ATEN), # NOTIFICACION OPORTUNA
+         tom_sint = as.numeric(FECHA_TOMA_MUESTRA - FEC_INI_SIGNOS_SINT), # MUESTRA OPORTUNA
+         conf_mue = as.numeric(FECHA_RESULTADO_TRIPLEX - FEC_SOL_ATEN), # RESULTADO DE LABORATORIO POSTERIOR A SOLICITUD DE ATENCION
+         res_mue = as.numeric(FECHA_RESULTADO_TRIPLEX - FECHA_RECEP_MUESTRA), # ESTANDAR DE SERVICIO EN LABORATORIO
+         DES_EDO_REP = str_squish(DES_EDO_REP),
+         DES_EDO_RES = str_squish(DES_EDO_RES),
+         DES_MPO_REP = str_squish(DES_MPO_REP),
+         DES_MPO_RES = str_squish(DES_MPO_RES),
+         DES_LOC_REP = str_squish(DES_LOC_REP),
+         DES_LOC_RES = str_squish(DES_LOC_RES),
+         CVE_EDO_REP = str_pad(CVE_EDO_REP, side = 'left', pad = '0', width = 2), 
+         CVE_EDO_RES = str_pad(CVE_EDO_RES, side = 'left', pad = '0', width = 2), 
+         CVE_JUR_REP = str_pad(CVE_JUR_REP, side = 'left', pad = '0', width = 2), 
+         CVE_JUR_RES = str_pad(CVE_JUR_RES, side = 'left', pad = '0', width = 2),
+         CVE_MPO_REP = str_pad(CVE_MPO_REP, side = 'left', pad = '0', width = 3),
+         CVE_MPO_RES = str_pad(CVE_MPO_RES, side = 'left', pad = '0', width = 3), 
+         CVE_LOC_REP = str_pad(CVE_LOC_REP, side = 'left', pad = '0', width = 4), 
+         CVE_LOC_RES = str_pad(CVE_LOC_RES, side = 'left', pad = '0', width = 4),
+         DES_MPO_UNIDAD = str_squish(DES_MPO_UNIDAD),
+         CVE_MPO_UNIDAD = str_pad(CVE_MPO_UNIDAD, side = 'left', pad = '0', width = 3),
+         CVE_EDO_UNIDAD = str_pad(CVE_EDO_UNIDAD, side = 'left', pad = '0', width = 2),
+         CVE_JUR_UNIDAD = str_pad(CVE_JUR_UNIDAD, side = 'left', pad = '0', width = 2), 
+         DES_JUR_UNIDAD = str_squish(DES_JUR_UNIDAD)
+         ) %>% 
+  select(IDE_ID, CVE_EDO_REP, CVE_EDO_RES, CVE_JUR_REP, CVE_JUR_RES,
+         CVE_MPO_REP, CVE_MPO_RES, 
+         CVE_LOC_REP, CVE_LOC_RES,
+         DES_EDO_REP, DES_EDO_RES,
+         DES_MPO_REP, DES_MPO_RES,
+         DES_LOC_REP, DES_LOC_RES, CVE_MPO_UNIDAD, CVE_EDO_UNIDAD, CVE_JUR_UNIDAD, DES_JUR_UNIDAD,
+         DES_UNI_MED_NOTIF, DES_EDO_UNIDAD, DES_INS_UNI_TRAT, DES_INS_UNIDAD, 
+         det_cap, tom_sint, conf_mue, res_mue,
+         FEC_CAPTURA, FEC_SOL_ATEN, FECHA_TOMA_MUESTRA, FEC_INI_SIGNOS_SINT,
+         FECHA_RESULTADO_TRIPLEX, FECHA_RECEP_MUESTRA, MUESTRA_LABORATORIO, MUESTRA_RECHAZADA, 
+         ESTATUS_CASO, CVE_DEFUNCION, FEC_DEFUNCION, IDE_EDA_ANO, IDE_SEX, DENGUE_SER_TRIPLEX, DES_MPO_UNIDAD, DENGUE_PCR_TRIPLEX,
+         DES_DIAG_PROBABLE, DES_DIAG_FINAL
+         ) %>%  
+  mutate(Año = year(floor_date(FEC_INI_SIGNOS_SINT, 'week') + 3),
+         Semana = epiweek(FEC_INI_SIGNOS_SINT)) %>%
+  mutate(`Grupo de edad` = cut(IDE_EDA_ANO, 
+                        breaks = c(0, 4, 9, 14, 19, 24, 44, 49, 59, 64, Inf),
+                        labels = c('De 00 a 04 años', 
+                                      'De 05 a 09 años', 
+                                      'De 10 a 14 años', 
+                                      'De 15 a 19 años', 
+                                      'De 20 a 24 años', 
+                                      'De 25 a 44 años', 
+                                      'De 45 a 49 años', 
+                                      'De 50 a 59 años', 
+                                      'De 60 a 64 años', 
+                                      'De 65 y más años'),
+                        include.lowest = T)) %>% 
+  mutate(`Grupo de edad` = factor(as.character(`Grupo de edad`), 
+                                  levels = c('De 00 a 04 años', 
+                                      'De 05 a 09 años', 
+                                      'De 10 a 14 años', 
+                                      'De 15 a 19 años', 
+                                      'De 20 a 24 años', 
+                                      'De 25 a 44 años', 
+                                      'De 45 a 49 años', 
+                                      'De 50 a 59 años', 
+                                      'De 60 a 64 años', 
+                                      'De 65 y más años')))
+
+dengue <- bind_rows(dengue_, hist)
+
+poblacion <- read_rds('poblacion_1990_2040.rds') %>% 
+#poblacion <- read_rds('poblaciones.rds') %>% 
+   mutate(`Grupo de edad` = case_when(
+    `Grupo de edad` %in% c('De 00 años', 'De 01 a 04 años') ~ 'De 00 a 04 años',
+    T ~ `Grupo de edad`
+  )) %>% 
+  group_by(ANO, CVE_ENT, NOM_ENT, CVE_JUR, NOM_JUR, CVE_MUN, NOM_MUN, Sexo, `Grupo de edad`) %>% 
+  summarise(POB = sum(POB)) %>% 
+  ungroup() %>% 
+  mutate(`Grupo de edad` = factor(as.character(`Grupo de edad`), 
+                           levels = c('De 00 a 04 años', 
+                                      'De 05 a 09 años', 
+                                      'De 10 a 14 años', 
+                                      'De 15 a 19 años', 
+                                      'De 20 a 24 años', 
+                                      'De 25 a 44 años', 
+                                      'De 45 a 49 años', 
+                                      'De 50 a 59 años', 
+                                      'De 60 a 64 años', 
+                                      'De 65 y más años')))
+cat <- poblacion %>% 
+  count(CVE_ENT, NOM_ENT, CVE_JUR, NOM_JUR, CVE_MUN, NOM_MUN) %>% 
+  select(-n)
+dt_time <- tibble(CVE_MES = 1:12, NOM_MES = c('Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'))
+
+
+```
+
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+
+
+
+```{r, eval=F, warning=F, message=F, echo=F, include=F}
+#Cargar archivo de excel.
+fileInput(inputId = "df", 
+          label = "Archivo de excel (.xlsx)", 
+          multiple = F, 
+          accept = '.xlsx')
+
+```
+
+
+Seleccion de año.
+
+```{r}
+selectInput("ano", label = "Año:",
+            choices = seq(2020, year(Sys.Date())), selected = year(Sys.Date()))
+
+```
+
+
+
+Seleccion de Estado del pais.
+
+```{r}
+selectInput("estado", label = "Estado:",
+            choices = c(unique(cat$NOM_ENT), 'Nacional'), selected = 'Nacional')
+
+```
+
+
+Seleccion de DSB/Jurisdicción.
+
+```{r}
+dsb.choice <- reactive({
+  if (input$estado == "Nacional"){
+  cat
+  } else if (input$estado != "Nacional"){
+    cat %>% 
+      filter(CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado])
+  } 
+})
+
+
+renderUI({selectInput(inputId = "dsb", label = "DSB/Jurisdicción:",
+        choices = c(dsb.choice()$CVE_JUR, 'Estatal'), selected = "Estatal")})
+
+```
+
+
+Seleccion de Municipio.
+
+```{r}
+municipio.choice <- reactive({
+  if (input$estado == "Nacional" & input$dsb == "Estatal"){
+  cat
+  } else if (input$estado != "Nacional" & input$dsb == "Estatal"){
+    cat %>% 
+      filter(CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado])
+  } else {
+      cat %>% 
+      filter(CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado],
+             CVE_JUR == input$dsb)
+    }
+})
+
+renderUI({selectInput(inputId = "municipio", label = "Municipio:",
+        choices = c(municipio.choice()$NOM_MUN, 'Distrital'), selected = 'Distrital')})
+
+```
+
+Seleccionar mes para evaluar indicadores
+
+```{r}
+selectInput("mes", label = "Mes:",
+            choices = c(dt_time$NOM_MES, 'Anual'), selected = 'Anual')
+```
+
+
+Row {data-width=350}
+-----------------------------------------------------------------------
+
+### Notificados {.value-box}
+
+```{r}
+
+df_cl <- reactive({
+  if (input$estado == 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    df_cl <- dengue %>% filter(Año == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado], Año == input$ano)
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_JUR_REP == input$dsb, Año == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_REP == input$dsb, Año == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio != 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado],
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio], Año == input$ano)
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_JUR_REP == input$dsb,
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio], Año == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    df_cl <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_REP == input$dsb,
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio], Año == input$ano)
+    
+  }
+})
+
+
+dfind_cl <- reactive({
+  if (input$estado == 'Nacional' & input$dsb == 'Estatal' & input$mes == 'Anual') {
+    dfind_cl <- dengue %>% filter(year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$mes == 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_EDO_UNIDAD == cat$CVE_ENT[cat$NOM_ENT == input$estado], year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$mes == 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_JUR_UNIDAD == input$dsb, year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$mes == 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_EDO_UNIDAD == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_UNIDAD == input$dsb, year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$mes != 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_EDO_UNIDAD == cat$CVE_ENT[cat$NOM_ENT == input$estado],
+                                  month(FEC_CAPTURA) == dt_time$CVE_MES[dt_time$NOM_MES == input$mes], year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$mes != 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_JUR_UNIDAD == input$dsb,
+                               month(FEC_CAPTURA) == dt_time$CVE_MES[dt_time$NOM_MES == input$mes], year(FEC_CAPTURA) == input$ano)
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$mes != 'Anual') {
+    dfind_cl <- dengue %>% filter(CVE_EDO_UNIDAD == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_UNIDAD == input$dsb,
+                               month(FEC_CAPTURA) == dt_time$CVE_MES[dt_time$NOM_MES == input$mes], year(FEC_CAPTURA) == input$ano)
+  } 
+})
+
+
+df_chan <- reactive({
+  if (input$estado == 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    df_chan <- dengue %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado]) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_JUR_REP == input$dsb) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_REP == input$dsb) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio != 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado],
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio]) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_JUR_REP == input$dsb,
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio]) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    df_chan <- dengue %>% filter(CVE_EDO_REP == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+                               CVE_JUR_REP == input$dsb,
+                               CVE_MPO_REP == cat$CVE_MUN[cat$NOM_MUN == input$municipio]) %>% 
+      filter(ESTATUS_CASO == 2, Año %in% (input$ano - 1 - 4):(input$ano - 1)) %>% 
+      count(Año, Semana) %>% 
+      arrange(Año) %>% 
+      pivot_wider(values_from = n, names_from = Año, values_fill = 0) %>% 
+      right_join(tibble(Semana = 1:52)) %>% 
+      arrange(Semana) %>%
+      replace(is.na(.), 0) %>% 
+      column_to_rownames(var = 'Semana') %>% 
+      mutate(Q75 = apply(., 1, FUN = quantile, probs = 0.75),
+             Q50 = apply(., 1, FUN = quantile, probs = 0.50),
+             Q25 = apply(., 1, FUN = quantile, probs = 0.25)
+             )
+    
+  }
+})
+
+
+pob_cl <- reactive({
+  if (input$estado == 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio == 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado]
+             ) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_JUR == input$dsb
+             ) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+    } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio == 'Distrital') {
+      pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+             CVE_JUR == input$dsb) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+  } else if (input$estado != 'Nacional' & input$dsb == 'Estatal' & input$municipio != 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado],
+             CVE_MUN == cat$CVE_MUN[cat$NOM_MUN == input$municipio]
+             ) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+  } else if (input$estado == 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_JUR == input$dsb,
+             CVE_MUN == cat$CVE_MUN[cat$NOM_MUN == input$municipio]
+             ) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+    
+  } else if (input$estado != 'Nacional' & input$dsb != 'Estatal' & input$municipio != 'Distrital') {
+    pob_cl <- poblacion %>% 
+      filter(ANO == input$ano,
+             CVE_ENT == cat$CVE_ENT[cat$NOM_ENT == input$estado], 
+             CVE_JUR == input$dsb,
+             CVE_MUN == cat$CVE_MUN[cat$NOM_MUN == input$municipio]
+             ) %>% 
+      group_by(Sexo, `Grupo de edad`) %>% 
+      summarise(POB = sum(POB, na.rm = T))
+
+  }
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue no grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE NO GRAVE') %>% count(),
+    icon = icon("mosquito"),
+    color = 'green'
+    )
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue con signos de alarma',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE CON SIGNOS DE ALARMA') %>% count(),
+    icon = icon("mosquito"),
+    color = 'orange')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE GRAVE') %>% count(), 
+    icon = icon("mosquito"),
+    color = 'red')
+})  
+  
+```
+
+
+### Probables {.value-box}
+
+```{r}
+renderValueBox({
+  valueBox(subtitle = 'Dengue no grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE NO GRAVE', ESTATUS_CASO == 1) %>% count(),
+    icon = icon("mosquito"),
+    color = 'green')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue con signos de alarma',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE CON SIGNOS DE ALARMA', ESTATUS_CASO == 1) %>% count(),
+    icon = icon("mosquito"),
+    color = 'orange')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE GRAVE', ESTATUS_CASO == 1) %>% count(), 
+    icon = icon("mosquito"),
+    color = 'red')
+})
+
+```
+
+
+### Confirmados {.value-box}
+
+```{r}
+renderValueBox({
+  valueBox(subtitle = 'Dengue no grave',
+    value = df_cl() %>% filter(DES_DIAG_FINAL == 'DENGUE NO GRAVE', ESTATUS_CASO == 2) %>% count(),
+    icon = icon("mosquito"),
+    color = 'green')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue con signos de alarma',
+    value = df_cl() %>% filter(DES_DIAG_FINAL == 'DENGUE CON SIGNOS DE ALARMA', ESTATUS_CASO == 2) %>% count(),
+    icon = icon("mosquito"),
+    color = 'orange')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue grave',
+    value = df_cl() %>% filter(DES_DIAG_FINAL == 'DENGUE GRAVE', ESTATUS_CASO == 2) %>% count(), 
+    icon = icon("mosquito"),
+    color = 'red')
+})
+
+```
+
+
+### Descartados {.value-box}
+
+```{r}
+renderValueBox({
+  valueBox(subtitle = 'Dengue no grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE NO GRAVE', ESTATUS_CASO == 3) %>% count(),
+    icon = icon("mosquito"),
+    color = 'green')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue con signos de alarma',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE CON SIGNOS DE ALARMA', ESTATUS_CASO == 3) %>% count(),
+    icon = icon("mosquito"),
+    color = 'orange')
+})
+
+renderValueBox({
+  valueBox(subtitle = 'Dengue grave',
+    value = df_cl() %>% filter(DES_DIAG_PROBABLE == 'DENGUE GRAVE', ESTATUS_CASO == 3) %>% count(), 
+    icon = icon("mosquito"),
+    color = 'red')
+})
+```
+
+
+Row {data-width=650 .tabset}
+-----------------------------------------------------------------------
+
+### Casos confirmados
+
+```{r}
+renderPlotly({
+df_cl() %>% 
+    filter(ESTATUS_CASO == 2) %>%
+    count(IDE_SEX, `Grupo de edad`) %>%
+    rename(Sexo = IDE_SEX) %>% 
+    mutate(Sexo = case_when(
+      Sexo == 1 ~ 'Masculino',
+      Sexo == 2 ~ 'Femenino'
+      )) %>% 
+    pivot_wider(names_from = Sexo, values_from = n, values_fill = 0) %>% 
+    right_join(
+      pob_cl() %>% 
+        pivot_wider(names_from = Sexo, values_from = POB, names_prefix = 'pob_')
+      ) %>%
+    replace(is.na(.), 0) %>% 
+    mutate(IA = round((Masculino + Femenino)/(pob_Femenino + pob_Masculino)*100000, 2)) %>% 
+    plot_ly() %>%
+    add_trace(x = ~`Grupo de edad`, 
+              y = ~Masculino, 
+              name = 'Hombres',
+              type = "bar", 
+              marker = list(color = 'rgb(65, 3, 36)')) %>%
+    add_trace(x = ~`Grupo de edad`,
+              y = ~Femenino,
+              name = "Mujeres",
+              type = "bar",
+              marker = list(color = 'rgb(150, 14, 83)')) %>% 
+    add_lines(x = ~`Grupo de edad`, y = ~IA, name = "Incidencia", line = list(color = 'rgb(220, 127, 55)'), yaxis = "y2") %>%
+    layout(title = '', legend = list(x = 1.1, y = 0.9, orientation = "v"),
+           yaxis2 = list(title = "Incidencia x 100,000 habs", side = "right", showgrid = F, ticks="outside",
+                         zerolinecolor = '#000000', overlaying = "y"), #range = c(0, 1.2 * max(graph2$incidencia, na.rm = T))),
+           xaxis = list(title = 'Grupo de edad (en años)',
+                        showgrid = F,
+                        ticks="outside",
+                        zerolinecolor = '#000000', 
+                        tickangle=270#, categoryorder = "array", categoryarray = c(quinqueniosarray)
+                        ),
+           yaxis = list(title = 'Casos',
+                        showgrid = F,
+                        ticks="outside", tickformat = ",d",
+                        zerolinecolor = '#000000'), #range = c(0, 1.2 * (max(graph2$Hombres, na.rm = T) + max(graph2$Mujeres, na.rm = T)))),
+           barmode = "stack")
+  })
+```
+
+
+### Defunciones en confirmados
+
+```{r}
+renderPlotly({
+df_cl() %>% 
+    filter(ESTATUS_CASO == 2, CVE_DEFUNCION == 1) %>%
+    count(IDE_SEX, `Grupo de edad`) %>%
+    rename(Sexo = IDE_SEX) %>% 
+    mutate(Sexo = case_when(
+      Sexo == 1 ~ 'Masculino',
+      Sexo == 2 ~ 'Femenino'
+      )) %>% 
+    pivot_wider(names_from = Sexo, values_from = n, values_fill = 0) %>% 
+    right_join(
+      pob_cl() %>% 
+        pivot_wider(names_from = Sexo, values_from = POB, names_prefix = 'pob_')
+      ) %>%
+    replace(is.na(.), 0) %>% 
+    mutate(TM = round((Masculino + Femenino)/(pob_Femenino + pob_Masculino)*100000, 2)) %>% 
+    plot_ly() %>%
+    add_trace(x = ~`Grupo de edad`, 
+              y = ~Masculino, 
+              name = 'Hombres',
+              type = "bar", 
+              marker = list(color = 'rgb(65, 3, 36)')) %>%
+    add_trace(x = ~`Grupo de edad`,
+              y = ~Femenino,
+              name = "Mujeres",
+              type = "bar",
+              marker = list(color = 'rgb(150, 14, 83)')) %>% 
+    add_lines(x = ~`Grupo de edad`, y = ~TM, name = "Tasa de Mortalidad", line = list(color = 'rgb(220, 127, 55)'), yaxis = "y2") %>%
+    layout(title = '', legend = list(x = 1.1, y = 0.9, orientation = "v"),
+           yaxis2 = list(title = "Tasa de Mortalidad x 100,000 habs", side = "right", showgrid = F, ticks="outside",
+                         zerolinecolor = '#000000', overlaying = "y"), #range = c(0, 1.2 * max(graph2$incidencia, na.rm = T))),
+           xaxis = list(title = 'Grupo de edad (en años)',
+                        showgrid = F,
+                        ticks="outside",
+                        zerolinecolor = '#000000', 
+                        tickangle=270#, categoryorder = "array", categoryarray = c(quinqueniosarray)
+                        ),
+           yaxis = list(title = 'Defunciones',
+                        showgrid = F,
+                        ticks="outside", tickformat = ",d",
+                        zerolinecolor = '#000000'), #range = c(0, 1.2 * (max(graph2$Hombres, na.rm = T) + max(graph2$Mujeres, na.rm = T)))),
+           barmode = "stack")
+  })
+```
+
+
+### Distribución de Casos por sexo
+
+```{r}
+renderPlotly({
+  df_cl() %>% 
+  filter(ESTATUS_CASO == 2) %>%
+  count(IDE_SEX) %>% 
+  rename(Sexo = IDE_SEX) %>% 
+  mutate(Sexo = case_when(
+    Sexo == 1 ~ 'Hombres',
+    Sexo == 2 ~ 'Mujeres'
+  )) %>% 
+  arrange(desc(Sexo)) %>% 
+  #pivot_wider(values_from = n, names_from = Sexo, values_fill = 0) %>% 
+  plot_ly(labels = ~Sexo, values = ~n, type = 'pie', 
+          marker = list(colors = c('rgb(150, 14, 83)', 'rgb(65, 3, 36)')),
+          textinfo = 'pct') %>% 
+  layout(title = '',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+})
+```
+
+
+### Distribución de Casos por institución
+
+```{r}
+renderPlotly({
+  df_cl() %>% 
+    filter(ESTATUS_CASO == 2) %>%
+    count(DES_INS_UNIDAD) %>% 
+    rename(Institucion = DES_INS_UNIDAD) %>%
+    arrange(desc(Institucion)) %>% 
+  #pivot_wider(values_from = n, names_from = Sexo, values_fill = 0) %>% 
+  plot_ly(x = ~Institucion, y = ~n, type = 'bar', 
+          marker = list(color = 'rgb(65, 3, 36)')          
+          ) %>% 
+    layout(title = '', legend = list(x = 1.1, y = 0.9, orientation = "v"),
+           xaxis = list(title = 'Institución',
+                        categoryorder = "total descending",
+                        showgrid = F,
+                        ticks="outside",
+                        zerolinecolor = '#000000', 
+                        tickangle=270#, categoryorder = "array", categoryarray = c(quinqueniosarray)
+                        ),
+           yaxis = list(title = 'Casos',
+                        showgrid = F,
+                        ticks="outside", tickformat = ",d",
+                        zerolinecolor = '#000000')#, #range = c(0, 1.2 * (max(graph2$Hombres, na.rm = T) + max(graph2$Mujeres, na.rm = T)))),
+           #barmode = "stack"
+           )
+
+})
+```
+
+
+Row {data-width=350, .tabset}
+-----------------------------------------------------------------------
+
+### Notificación oportuna de Dengue No Grave
+
+```{r}
+### Notificación oportuna de Dengue No Grave
+DT::renderDT({
+dfind_cl() %>% 
+  filter(DES_DIAG_PROBABLE == 'DENGUE NO GRAVE') %>% 
+  mutate('Notificación Oportuna' = case_when(
+    det_cap %in% seq(0,3,1) ~ 'Oportuna', 
+    TRUE ~ 'No oportuna')) %>% 
+  count(`Notificación Oportuna`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+  DT::datatable(rownames = F)
+})
+```
+
+
+### Notificación oportuna de Dengue con Signos de Alarma y Dengue Grave
+
+```{r}
+### Notificación oportuna de Dengue con Signos de Alarma y Dengue Grave
+DT::renderDT({
+dfind_cl() %>% 
+  filter(DES_DIAG_PROBABLE %in% c('DENGUE GRAVE', 'DENGUE CON SIGNOS DE ALARMA')) %>% 
+  mutate('Notificación Oportuna' = case_when(
+    det_cap %in% seq(0,1,1) ~ 'Oportuna', 
+    TRUE ~ 'No oportuna')) %>% 
+  count(`Notificación Oportuna`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+DT::datatable(rownames = F)
+})
+```
+
+
+### Casos de Dengue con Signos de Alarma y Dengue Grave con muestra
+
+```{r}
+### Casos de Dengue con Signos de Alarma y Dengue Grave con muestra   
+DT::renderDT({
+dfind_cl() %>% 
+  filter(DES_DIAG_PROBABLE %in% c('DENGUE GRAVE', 'DENGUE CON SIGNOS DE ALARMA')) %>% 
+  mutate('Muestra' = case_when(
+    !is.na(FECHA_RECEP_MUESTRA) ~ 'Con muestra', 
+    TRUE ~ 'Sin muestra')) %>% 
+  count(Muestra) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+DT::datatable(rownames = F)
+})
+```
+
+
+### Oportunidad en la toma de muestra
+
+```{r}
+### Oportunidad en la toma de muestra   
+DT::renderDT({
+dfind_cl() %>% 
+  filter(!is.na(FECHA_RECEP_MUESTRA)) %>% 
+  mutate('Muestra oportuna' = case_when(
+    tom_sint %in% seq(0,5,1) ~ 'Oportuna', 
+    TRUE ~ 'No oportuna')) %>% 
+  count(`Muestra oportuna`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+DT::datatable(rownames = F)
+})
+```
+
+
+### Oportunidad de clasificación del caso
+
+```{r}
+### Oportunidad de clasificación del caso    
+DT::renderDT({
+dfind_cl() %>% 
+  filter(!is.na(DENGUE_PCR_TRIPLEX)) %>% 
+  mutate('Clasificación oportuna' = case_when(
+    conf_mue %in% seq(0,14,1) ~ 'Oportuna', 
+    TRUE ~ 'No oportuna')) %>% 
+  count(`Clasificación oportuna`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+DT::datatable(rownames = F)
+})
+```
+
+
+### Porcentaje de rechazo
+
+```{r}
+### Porcentaje de rechazo   
+DT::renderDT({
+dfind_cl() %>% 
+  filter(MUESTRA_LABORATORIO == 1) %>% 
+  mutate("Muestra rechazada" = case_when(
+    MUESTRA_RECHAZADA == 1 ~ 'Rechazada', 
+    MUESTRA_RECHAZADA == 2 ~ 'No rechazada', 
+    TRUE ~ 'Sin informacion')) %>% 
+  count(`Muestra rechazada`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>%
+DT::datatable(rownames = F)
+})  
+```
+
+
+### Estandar del servicio en laboratorio
+
+```{r}
+### Estandar del servicio en laboratorio   
+DT::renderDT({
+dfind_cl() %>% 
+  filter(!is.na(DENGUE_PCR_TRIPLEX)) %>% 
+  mutate('Estandar del laboratorio' = case_when(
+    res_mue %in% seq(0,3,1) ~ 'Oportuna', 
+    TRUE ~ 'No oportuna')) %>% 
+  count(`Estandar del laboratorio`) %>% 
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>% 
+  rename(Casos = n) %>% 
+DT::datatable(rownames = F)
+})
+```
+
+
+### Municipios con identificación de serotipos
+
+```{r}
+### Municipios con identificación de serotipos   
+DT::renderDT({
+dfind_cl() %>% 
+  filter(ESTATUS_CASO == 2) %>%
+  count(DES_EDO_UNIDAD, DES_JUR_UNIDAD, DES_MPO_UNIDAD, DENGUE_SER_TRIPLEX) %>%
+  pivot_wider(values_from = n, names_from = DENGUE_SER_TRIPLEX) %>% 
+  rename(Estado = DES_EDO_UNIDAD, 
+         DSB = DES_JUR_UNIDAD,
+         Municipio = DES_MPO_UNIDAD) %>% 
+  full_join(
+    tibble(Municipio = NA, '1' = NA, '2' = NA, '3' = NA, '4' = NA, '9' = NA, '0' = NA, 'NA' = NA)
+  ) %>% 
+  filter(!is.na(Municipio)) %>% 
+  rename('DENV 1' = `1`,
+         'DENV 2' = `2`,
+         'DENV 3' = `3`,
+         'DENV 4' = `4`,
+         'Otros' = `9`) %>%
+  select(Estado, DSB, Municipio, `DENV 1`, `DENV 2`, `DENV 3`, `DENV 4`, Otros) %>%
+  mutate('Municipios con identificacion de serotipos' = case_when(
+    !is.na(`DENV 1`) | !is.na(`DENV 2`) | !is.na(`DENV 3`) | !is.na(`DENV 4`) | !is.na(Otros) ~ 'Si tiene identificacion',
+    TRUE ~ 'No tiene identifacion'
+  )) %>%
+  count(`Municipios con identificacion de serotipos`) %>%
+  mutate('%' = round(n/sum(n, na.rm = T)*100, 2)) %>%
+  rename(Casos = n) %>%
+  arrange(desc(Casos)) %>%
+DT::datatable(rownames = F)
+})
+```
+
+
+
+Row {data-width=650 .tabset}
+-----------------------------------------------------------------------
+
+### Casos por semana epidemiológica de inicio de síntomas   
+
+```{r}
+renderPlotly(
+df_cl() %>% 
+  count(Semana, ESTATUS_CASO) %>% 
+  pivot_wider(names_from = ESTATUS_CASO, values_from = n, values_fill = 0) %>% 
+  right_join(tibble(Semana = 1:52)) %>% 
+  full_join(tibble(Semana = NA, `1` = NA, `2` = NA, `3` = NA)) %>% 
+  filter(!is.na(Semana)) %>% 
+  replace(is.na(.), 0) %>% 
+  arrange(Semana) %>% 
+  plot_ly(x = ~Semana) %>% 
+  add_trace(y = ~`1`, name = 'Probables', type = "bar", marker = list(color = 'rgb(247, 206, 205)')) %>% 
+  add_trace(y = ~`2`, name = 'Confirmados', type = "bar", marker = list(color = 'rgb(220, 127, 55)')) %>% 
+  add_trace(y = ~`3`, name = 'Descartados', type = "bar", marker = list(color = 'rgb(155, 47, 62)')) %>% 
+  layout(title = '', legend = list(x = 1.1, y = 0.9, orientation = "v"),
+         xaxis = list(title = 'Semana epidemiológica por inicio de síntomas',
+                      showgrid = F,
+                      ticks="outside",
+                      zerolinecolor = '#000000', 
+                      tickangle=270#, categoryorder = "array", categoryarray = c(quinqueniosarray)
+         ),
+         yaxis = list(title = 'Casos',
+                      showgrid = F,
+                      ticks="outside", tickformat = ",d",
+                      zerolinecolor = '#000000'), #range = c(0, 1.2 * (max(graph2$Hombres, na.rm = T) + max(graph2$Mujeres, na.rm = T)))), 
+         barmode = "stack")
+)
+```
+
+
+
+### Canal endémico
+
+```{r}
+renderPlotly(
+df_chan() %>% 
+  plot_ly(x = ~as.numeric(rownames(.))) %>%
+  add_ribbons(
+    ymax = ~Q75, ymin = ~Q50, opacity = 0.3,
+    line = list(color = 'red'), fillcolor = 'red',
+    name = "Zona de alerta (P75)") %>%
+  add_ribbons(
+    ymax = ~Q50, ymin = ~Q25, opacity = 0.3,
+    line = list(color = 'yellow'), fillcolor = 'yellow',
+    name = "Zona de seguridad (P50)") %>%
+  add_ribbons(
+    ymax = ~Q25, ymin = 0, opacity = 0.3,
+    line = list(color = 'green'), fillcolor = 'green',
+    name = "Zona de éxito (P25)") %>%
+#  add_lines(data = df_cl() %>% filter(ESTATUS_CASO == 2) %>% count(Año, Semana) %>% select(-Año) %>% right_join(tibble(Semana = 1:52)) %>% arrange(Semana) %>% replace(is.na(.), 0), x = ~Semana, y = ~n, name = 'Casos', mode = 'line', line = list(color = 'black'), marker = list(color = 'black')) %>%
+  layout(title = paste('Canal endémico de dengue, Sonora', sep = ''),
+         xaxis = list(title = 'Semana de inicio de síntomas', 
+                      showgrid = F,
+                      ticks="outside",
+                      zerolinecolor = '#000000',
+                      tickangle=270,
+                      nticks = 12),
+         yaxis = list(title = 'Casos',
+                      showgrid = F,
+                      ticks="outside",
+                      zerolinecolor = '#000000')
+  )
+)
+```
+
